@@ -1,66 +1,274 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
-import { BugAntIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { BugAntIcon, MagnifyingGlassIcon, HeartIcon, ArrowPathIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Address } from "~~/components/scaffold-eth";
+import { useScaffoldReadContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
+import { parseEther } from "viem";
 
 const Home: NextPage = () => {
   const { address: connectedAddress } = useAccount();
+  const [donationAmount, setDonationAmount] = useState("");
+  const [tokenDonationAmount, setTokenDonationAmount] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Read contract data
+  const { data: foundationInfo } = useScaffoldReadContract({
+    contractName: "Foundation",
+    functionName: "name",
+  });
+
+  const { data: owner } = useScaffoldReadContract({
+    contractName: "Foundation",
+    functionName: "owner",
+  });
+
+  const { data: isDonationEnabled } = useScaffoldReadContract({
+    contractName: "Foundation",
+    functionName: "isDonationEnabled",
+  });
+
+  const { data: ethDonation } = useScaffoldReadContract({
+    contractName: "Foundation",
+    functionName: "getDonationOf",
+    args: [connectedAddress],
+  });
+
+  const { data: tokenDonation } = useScaffoldReadContract({
+    contractName: "Foundation",
+    functionName: "getTokenDonationOf",
+    args: [connectedAddress],
+  });
+
+  const { data: hasNFT } = useScaffoldReadContract({
+    contractName: "CharityNFT",
+    functionName: "hasReceivedNFT",
+    args: [connectedAddress],
+  });
+
+  // Write contract functions
+  const { writeContractAsync: donate } = useScaffoldWriteContract("Foundation");
+  const { writeContractAsync: donateTokens } = useScaffoldWriteContract("Foundation");
+  const { writeContractAsync: claimRefund } = useScaffoldWriteContract("Foundation");
+  const { writeContractAsync: claimTokenRefund } = useScaffoldWriteContract("Foundation");
+  const { writeContractAsync: changeDonationState } = useScaffoldWriteContract("Foundation");
+
+  const isOwner = connectedAddress?.toLowerCase() === owner?.toLowerCase();
+
+  const handleDonate = async () => {
+    if (!donationAmount) return;
+    setIsProcessing(true);
+    try {
+      await donate({
+        functionName: "donate",
+        value: parseEther(donationAmount),
+      });
+      setDonationAmount("");
+    } catch (error) {
+      console.error("Donation failed:", error);
+    }
+    setIsProcessing(false);
+  };
+
+  const handleTokenDonate = async () => {
+    if (!tokenDonationAmount) return;
+    setIsProcessing(true);
+    try {
+      await donateTokens({
+        functionName: "donateTokens",
+        args: [parseEther(tokenDonationAmount)],
+      });
+      setTokenDonationAmount("");
+    } catch (error) {
+      console.error("Token donation failed:", error);
+    }
+    setIsProcessing(false);
+  };
+
+  const handleClaimRefund = async () => {
+    setIsProcessing(true);
+    try {
+      await claimRefund({
+        functionName: "claimRefund",
+      });
+    } catch (error) {
+      console.error("Refund claim failed:", error);
+    }
+    setIsProcessing(false);
+  };
+
+  const handleClaimTokenRefund = async () => {
+    setIsProcessing(true);
+    try {
+      await claimTokenRefund({
+        functionName: "claimTokenRefund",
+      });
+    } catch (error) {
+      console.error("Token refund claim failed:", error);
+    }
+    setIsProcessing(false);
+  };
+
+  const handleToggleDonations = async () => {
+    setIsProcessing(true);
+    try {
+      await changeDonationState({
+        functionName: "changeDonationState",
+        args: [!isDonationEnabled],
+      });
+    } catch (error) {
+      console.error("Failed to change donation state:", error);
+    }
+    setIsProcessing(false);
+  };
 
   return (
     <>
       <div className="flex items-center flex-col grow pt-10">
-        <div className="px-5">
+        <div className="px-5 w-full max-w-4xl">
           <h1 className="text-center">
             <span className="block text-2xl mb-2">Welcome to</span>
-            <span className="block text-4xl font-bold">Scaffold-ETH 2</span>
+            <span className="block text-4xl font-bold">{foundationInfo || "Charity Foundation"}</span>
           </h1>
-          <div className="flex justify-center items-center space-x-2 flex-col">
-            <p className="my-2 font-medium">Connected Address:</p>
-            <Address address={connectedAddress} />
-          </div>
 
-          <p className="text-center text-lg">
-            Get started by editing{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/nextjs/app/page.tsx
-            </code>
-          </p>
-          <p className="text-center text-lg">
-            Edit your smart contract{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              YourContract.sol
-            </code>{" "}
-            in{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/hardhat/contracts
-            </code>
-          </p>
-        </div>
+          {isOwner && (
+            <div className="mt-8 bg-base-200 p-6 rounded-lg">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <Cog6ToothIcon className="h-6 w-6" />
+                Owner Controls
+              </h2>
+              <div className="flex items-center gap-4">
+                <p className="font-medium">Donations are currently:</p>
+                <span className={`badge ${isDonationEnabled ? "badge-success" : "badge-error"}`}>
+                  {isDonationEnabled ? "Enabled" : "Disabled"}
+                </span>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleToggleDonations}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? "Processing..." : isDonationEnabled ? "Disable Donations" : "Enable Donations"}
+                </button>
+              </div>
+            </div>
+          )}
 
-        <div className="grow bg-base-300 w-full mt-16 px-8 py-12">
-          <div className="flex justify-center items-center gap-12 flex-col md:flex-row">
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <BugAntIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Tinker with your smart contract using the{" "}
-                <Link href="/debug" passHref className="link">
-                  Debug Contracts
-                </Link>{" "}
-                tab.
+          {connectedAddress && (
+            <div className="mt-8 bg-base-200 p-6 rounded-lg">
+              <h2 className="text-2xl font-bold mb-4">Your Donations</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-base-100 p-4 rounded-lg">
+                  <p className="font-medium">ETH Donations:</p>
+                  <p className="text-xl">{ethDonation ? `${Number(ethDonation) / 1e18} ETH` : "0 ETH"}</p>
+                </div>
+                <div className="bg-base-100 p-4 rounded-lg">
+                  <p className="font-medium">Token Donations:</p>
+                  <p className="text-xl">{tokenDonation ? `${Number(tokenDonation) / 1e18} CHRT` : "0 CHRT"}</p>
+                </div>
+              </div>
+              {hasNFT && (
+                <div className="mt-4 bg-base-100 p-4 rounded-lg">
+                  <p className="font-medium">Your Charity NFT Status:</p>
+                  <p className="text-xl text-success">✓ NFT Received</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isDonationEnabled && (
+            <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-base-200 p-6 rounded-lg">
+                <h2 className="text-2xl font-bold mb-4">Donate ETH</h2>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Amount in ETH"
+                    className="input input-bordered w-full"
+                    value={donationAmount}
+                    onChange={e => setDonationAmount(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleDonate}
+                    disabled={isProcessing || !donationAmount}
+                  >
+                    {isProcessing ? "Processing..." : "Donate"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-base-200 p-6 rounded-lg">
+                <h2 className="text-2xl font-bold mb-4">Donate Tokens</h2>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Amount in CHRT"
+                    className="input input-bordered w-full"
+                    value={tokenDonationAmount}
+                    onChange={e => setTokenDonationAmount(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleTokenDonate}
+                    disabled={isProcessing || !tokenDonationAmount}
+                  >
+                    {isProcessing ? "Processing..." : "Donate"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isDonationEnabled && (
+            <div className="mt-8 bg-base-200 p-6 rounded-lg">
+              <p className="text-center text-lg text-error">
+                Donations are currently disabled. Please check back later.
               </p>
             </div>
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <MagnifyingGlassIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Explore your local transactions with the{" "}
-                <Link href="/blockexplorer" passHref className="link">
-                  Block Explorer
-                </Link>{" "}
-                tab.
-              </p>
+          )}
+
+          {connectedAddress && (ethDonation || tokenDonation) && (
+            <div className="mt-8 bg-base-200 p-6 rounded-lg">
+              <h2 className="text-2xl font-bold mb-4">Request Refund</h2>
+              <div className="flex gap-4">
+                {ethDonation && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleClaimRefund}
+                    disabled={isProcessing}
+                  >
+                    <ArrowPathIcon className="h-5 w-5 mr-2" />
+                    Claim ETH Refund
+                  </button>
+                )}
+                {tokenDonation && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleClaimTokenRefund}
+                    disabled={isProcessing}
+                  >
+                    <ArrowPathIcon className="h-5 w-5 mr-2" />
+                    Claim Token Refund
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-8 bg-base-200 p-6 rounded-lg">
+            <h2 className="text-2xl font-bold mb-4">Quick Links</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Link href="/debug" className="btn btn-primary w-full">
+                <BugAntIcon className="h-5 w-5 mr-2" />
+                Debug Contracts
+              </Link>
+              <Link href="/blockexplorer" className="btn btn-primary w-full">
+                <MagnifyingGlassIcon className="h-5 w-5 mr-2" />
+                Block Explorer
+              </Link>
             </div>
           </div>
         </div>
